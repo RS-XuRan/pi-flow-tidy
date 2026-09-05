@@ -1,0 +1,151 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createUniversalTidy } from "../runtime/universal-tidy.mjs";
+
+function visibleWidth(value) {
+  return String(value).replace(/\x1b\[[0-9;]*m/g, "").length;
+}
+
+function truncateToWidth(value, width, ellipsis = "") {
+  const text = String(value);
+  if (visibleWidth(text) <= width) return text;
+  return `${text.slice(0, Math.max(0, width - ellipsis.length))}${ellipsis}`;
+}
+
+const theme = {
+  fg(_color, text) { return text; },
+  bg(_color, text) { return text; },
+  bold(text) { return text; },
+};
+
+test("decorates raw tool names and strips injected reasoning", async () => {
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  let preparedArgs;
+  let executedArgs;
+  const source = {
+    name: "third_party_search",
+    label: "third_party_search",
+    description: "Test tool",
+    promptGuidelines: ["Keep the query narrow."],
+    parameters: {
+      type: "object",
+      properties: {
+        pattern: { type: "string" },
+        path: { type: "string" },
+      },
+      required: ["pattern"],
+      additionalProperties: false,
+    },
+    prepareArguments(args) {
+      preparedArgs = args;
+      return { ...args, path: args.path ?? "." };
+    },
+    async execute(_id, args) {
+      executedArgs = args;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        content: [{ type: "text", text: "src/a.ts:1:match\nsrc/b.ts:2:match" }],
+        details: { totalMatched: 2, totalFiles: 2 },
+      };
+    },
+  };
+
+  const tool = runtime.decorateToolDefinition(source);
+  assert.equal(tool.name, "third_party_search");
+  assert.equal(tool.label, "third_party_search");
+  assert.equal(tool.renderShell, "self");
+  assert.equal(tool.parameters.properties.reasoning.type, "string");
+  assert.deepEqual(tool.parameters.required, ["pattern"]);
+
+  const rawArgs = { reasoning: "locate matching source files", pattern: "match", path: "src" };
+  const prepared = tool.prepareArguments(rawArgs);
+  assert.deepEqual(preparedArgs, { pattern: "match", path: "src" });
+  assert.deepEqual(prepared, rawArgs);
+
+  const state = {};
+  const context = {
+    args: rawArgs,
+    toolCallId: "call-1",
+    invalidate() {},
+    lastComponent: undefined,
+    state,
+    cwd: process.cwd(),
+    executionStarted: true,
+    argsComplete: true,
+    isPartial: true,
+    expanded: false,
+    showImages: false,
+    isError: false,
+  };
+  const callLines = tool.renderCall(rawArgs, theme, context).render(120);
+  assert.equal(callLines.length, 2);
+  assert.match(callLines[0], /third_party_search locate matching source files/);
+
+  const result = await tool.execute("call-1", prepared, undefined, undefined, {});
+  assert.deepEqual(executedArgs, { pattern: "match", path: "src" });
+
+  const resultLines = tool.renderResult(
+    result,
+    { expanded: false, isPartial: false },
+    theme,
+    { ...context, isPartial: false },
+  ).render(120);
+  assert.equal(resultLines.length, 2);
+  assert.match(resultLines[1], /2 matches in 2 files · \d+(?:ms|s)/);
+});
+
+test("preserves an existing reasoning parameter", async () => {
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  let executedArgs;
+  const source = {
+    name: "semantic_reasoning",
+    label: "semantic_reasoning",
+    description: "Test tool",
+    parameters: {
+      type: "object",
+      properties: {
+        reasoning: { type: "string" },
+        value: { type: "string" },
+      },
+      required: ["reasoning", "value"],
+    },
+    async execute(_id, args) {
+      executedArgs = args;
+      return { content: [{ type: "text", text: "ok" }], details: {} };
+    },
+  };
+  const tool = runtime.decorateToolDefinition(source);
+  const args = { reasoning: "preserve semantic input", value: "x" };
+  await tool.execute("call-2", args, undefined, undefined, {});
+  assert.deepEqual(executedArgs, args);
+});
+
+test("decorates built-in, SDK, and dynamically registered tools", () => {
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  const makeTool = (name) => ({
+    name,
+    label: name,
+    description: "Test tool",
+    parameters: { type: "object", properties: { value: { type: "string" } } },
+    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },
+  });
+
+  class FakeAgentSession {
+    constructor() {
+      this._baseToolDefinitions = new Map([["read", makeTool("read")]]);
+      this._extensionRunner = {
+        extensions: [{ tools: new Map([["late", { definition: makeTool("late_tool") }]]) }],
+      };
+      this._customTools = [makeTool("sdk_tool")];
+    }
+    _refreshToolRegistry() { this.refreshed = true; }
+  }
+
+  assert.equal(runtime.installAgentSessionPatch(FakeAgentSession), true);
+  const session = new FakeAgentSession();
+  session._refreshToolRegistry();
+  assert.equal(session.refreshed, true);
+  assert.equal(session._baseToolDefinitions.get("read").renderShell, "self");
+  assert.equal(session._extensionRunner.extensions[0].tools.get("late").definition.renderShell, "self");
+  assert.equal(session._customTools[0].renderShell, "self");
+});

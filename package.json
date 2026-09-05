@@ -1,0 +1,49 @@
+{
+  "name": "pi-flow-tidy",
+  "version": "0.2.0",
+  "description": "Universal compact two-line tool rendering for Pi, including dynamically registered third-party tools.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Soren Chan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RS-XuRan/pi-flow-tidy.git"
+  },
+  "homepage": "https://github.com/RS-XuRan/pi-flow-tidy#readme",
+  "bugs": {
+    "url": "https://github.com/RS-XuRan/pi-flow-tidy/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "tool-rendering",
+    "tui"
+  ],
+  "bin": {
+    "pi-flow-tidy": "./bin/pi-flow-tidy.mjs"
+  },
+  "files": [
+    "bin",
+    "extensions",
+    "lib",
+    "runtime",
+    "install.ps1",
+    "install.sh",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/index.js"
+    ]
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/pi-flow-tidy.mjs && node --check extensions/index.js && node --check lib/install.mjs && node --check lib/paths.mjs && node --check runtime/launcher.mjs && node --check runtime/universal-tidy.mjs"
+  }
+}
