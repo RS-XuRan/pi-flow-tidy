@@ -56,17 +56,27 @@ test("assigns distinct icons and colors with a generic fallback", () => {
   assert.match(editLines[1], /<warning>└<\/warning>/);
 });
 
-test("delegates full-row backgrounds to the Pi self render shell", () => {
+test("keeps full-row backgrounds active after truncation resets ANSI styles", () => {
+  const backgroundAnsi = "\x1b[48;2;60;40;40m";
+  const resetAll = "\x1b[0m";
+  const resetBackground = "\x1b[49m";
   const backgroundCalls = [];
   const shellTheme = {
     fg(_color, text) { return text; },
     bg(color, text) {
-      backgroundCalls.push({ color, text });
-      return text;
+      backgroundCalls.push(color);
+      return `${backgroundAnsi}${text}${resetBackground}`;
     },
+    getBgAnsi() { return backgroundAnsi; },
     bold(text) { return text; },
   };
-  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  const truncateWithReset = (value, width, ellipsis = "") => {
+    const plain = String(value).replace(/\x1b\[[0-9;]*m/g, "");
+    if (visibleWidth(plain) <= width) return plain;
+    const prefix = plain.slice(0, Math.max(0, width - visibleWidth(ellipsis)));
+    return `${prefix}${resetAll}${ellipsis}${resetAll}`;
+  };
+  const runtime = createUniversalTidy({ truncateToWidth: truncateWithReset, visibleWidth });
   const tool = runtime.decorateToolDefinition({
     name: "edit",
     label: "edit",
@@ -74,7 +84,10 @@ test("delegates full-row backgrounds to the Pi self render shell", () => {
     parameters: { type: "object", properties: { path: { type: "string" } } },
     async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },
   });
-  const args = { reasoning: "update lock file", path: "package-lock.json" };
+  const args = {
+    reasoning: "update a lock file with a deliberately long rendering headline",
+    path: "C:/Users/test/project/with/a/very/long/path/package-lock.json",
+  };
   const state = {};
   const runningLines = tool.renderCall(args, shellTheme, {
     args,
@@ -82,19 +95,27 @@ test("delegates full-row backgrounds to the Pi self render shell", () => {
     invalidate() {},
     state,
     isPartial: true,
-  }).render(120);
+  }).render(48);
   const errorLines = tool.renderResult(
     { content: [{ type: "text", text: "Found 2 occurrences of the text. The text must be unique." }], isError: true },
     { expanded: false, isPartial: false },
     shellTheme,
     { args, toolCallId: "background-gap", state, isPartial: false, isError: true },
-  ).render(120);
+  ).render(48);
 
   assert.equal(tool.renderShell, "self");
-  assert.equal(runningLines.length, 2);
-  assert.equal(errorLines.length, 2);
-  assert.ok([...runningLines, ...errorLines].every((line) => !line.endsWith(" ")));
-  assert.deepEqual(backgroundCalls, []);
+  assert.equal(backgroundCalls.length, 4);
+  assert.ok([...runningLines, ...errorLines].every((line) => visibleWidth(line) === 48));
+  assert.ok([...runningLines, ...errorLines].every((line) => line.startsWith(backgroundAnsi)));
+  assert.ok([...runningLines, ...errorLines].every((line) => line.endsWith(resetBackground)));
+  const truncatedLines = [...runningLines, ...errorLines].filter((line) => line.includes(resetAll));
+  assert.ok(truncatedLines.length > 0);
+  for (const line of truncatedLines) {
+    for (const match of line.matchAll(/\x1b\[0m/g)) {
+      const next = match.index + resetAll.length;
+      assert.equal(line.slice(next, next + backgroundAnsi.length), backgroundAnsi);
+    }
+  }
 });
 
 test("decorates raw tool names and strips injected reasoning", async () => {

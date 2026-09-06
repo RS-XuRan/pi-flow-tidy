@@ -8,7 +8,7 @@ const root = new URL("..", import.meta.url);
 test("declares a standard Pi package and CLI", async () => {
   const packageJson = JSON.parse(await readFile(new URL("package.json", root), "utf8"));
   assert.equal(packageJson.name, "pi-flow-tidy");
-  assert.equal(packageJson.version, "0.3.1");
+  assert.equal(packageJson.version, "0.3.2");
   assert.ok(packageJson.keywords.includes("pi-package"));
   assert.deepEqual(packageJson.pi.extensions, ["./extensions/index.js"]);
   assert.equal(packageJson.bin["pi-flow-tidy"], "./bin/pi-flow-tidy.mjs");

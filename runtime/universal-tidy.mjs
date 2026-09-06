@@ -58,6 +58,36 @@ function fg(theme, color, text) {
   return safeThemeCall(theme, "fg", color, text);
 }
 
+function bg(theme, color, text) {
+  return safeThemeCall(theme, "bg", color, text);
+}
+
+function getBackgroundAnsi(theme, color) {
+  try {
+    const direct = theme?.getBgAnsi;
+    if (typeof direct === "function") {
+      const value = direct.call(theme, color);
+      if (typeof value === "string") return value;
+    }
+  } catch {}
+
+  try {
+    const sample = theme?.bg;
+    if (typeof sample === "function") {
+      return String(sample.call(theme, color, "")).match(/^\x1b\[[0-9;]*m/)?.[0] ?? "";
+    }
+  } catch {}
+  return "";
+}
+
+function paintBackground(theme, color, text) {
+  const backgroundAnsi = getBackgroundAnsi(theme, color);
+  const repaired = backgroundAnsi
+    ? String(text).replace(/\x1b\[(?:0|00|49)?m/g, (reset) => `${reset}${backgroundAnsi}`)
+    : text;
+  return bg(theme, color, repaired);
+}
+
 function bold(theme, text) {
   return safeThemeCall(theme, "bold", text);
 }
@@ -279,10 +309,11 @@ function fitToolLine(line, width, truncateToWidth, visibleWidth) {
   return `${truncateToWidth(head, Math.max(1, max - tailWidth - 1), "…")} ${tail}`;
 }
 
-// The self render shell delegates full-row background painting to Pi's outer Box.
+// Pi uses a plain Container for renderShell "self", so this component owns the full-row background.
 class WidthAwareLines {
-  constructor(source, truncateToWidth, visibleWidth) {
+  constructor(source, background, truncateToWidth, visibleWidth) {
     this.source = source;
+    this.background = background;
     this.truncateToWidth = truncateToWidth;
     this.visibleWidth = visibleWidth;
   }
@@ -292,7 +323,11 @@ class WidthAwareLines {
   render(width) {
     const max = Math.max(1, width);
     const lines = typeof this.source === "function" ? this.source() : this.source;
-    return lines.map((line) => fitToolLine(line, max, this.truncateToWidth, this.visibleWidth));
+    return lines.map((line) => {
+      const fitted = fitToolLine(line, max, this.truncateToWidth, this.visibleWidth);
+      const padded = fitted + " ".repeat(Math.max(0, max - this.visibleWidth(fitted)));
+      return this.background(padded);
+    });
   }
 }
 
@@ -455,6 +490,7 @@ export function createUniversalTidy(options) {
             isRunning: true,
             elapsedMs: getTiming(timings, context.toolCallId, context).elapsedMs,
           }, theme),
+          (text) => paintBackground(theme, "toolPendingBg", text),
           truncateToWidth,
           visibleWidth,
         );
@@ -472,6 +508,7 @@ export function createUniversalTidy(options) {
         }, theme);
         return new WidthAwareLines(
           lines,
+          (text) => paintBackground(theme, isError ? "toolErrorBg" : "toolSuccessBg", text),
           truncateToWidth,
           visibleWidth,
         );

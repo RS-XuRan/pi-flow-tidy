@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 - 2026-09-06
+
+- Restore full-row backgrounds for the self render shell.
+- Reapply the active background after ANSI resets inserted during width truncation.
+- Cover both missing-background and right-edge-gap regressions.
+
 ## 0.3.1 - 2026-09-06
 
 - Fix incomplete tool background coverage at the right edge of rendered rows.
