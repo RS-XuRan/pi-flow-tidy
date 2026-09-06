@@ -2,29 +2,31 @@ const DECORATED = Symbol.for("pi.flowTidy.decorated");
 const PATCHED = Symbol.for("pi.flowTidy.agentSessionPatched");
 const STATE_STARTED_AT = "universalTidyStartedAt";
 const STATE_TIMER = "universalTidyTimer";
+const STATE_ELAPSED_MS = "universalTidyElapsedMs";
 const REASONING_DESCRIPTION =
   "Short phrase (12 words or fewer) stating the goal or intent. Do not restate the target, path, command, or query.";
 const SECRET_KEY = /(token|secret|password|passwd|api[_-]?key|authorization|credential|cookie)/i;
 const OMIT_KEY = /^(reasoning|content|data|body|payload|patch|oldText|newText|edits|tool_uses)$/i;
 const MAX_INLINE_VALUE = 140;
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
-const DEFAULT_TOOL_VISUAL = Object.freeze({ category: "generic", icon: "◆", color: "toolTitle" });
+const HORIZONTAL_PADDING = 1;
+const DEFAULT_TOOL_VISUAL = Object.freeze({ category: "generic", icon: "🧩", color: "toolTitle" });
 const TOOL_VISUAL_RULES = Object.freeze([
-  { category: "orchestration", tokens: ["parallel", "batch", "multi", "orchestrate", "fanout"], icon: "⋈", color: "syntaxKeyword" },
-  { category: "task", tokens: ["todo", "task", "plan", "checklist"], icon: "☑", color: "customMessageLabel" },
-  { category: "edit", tokens: ["edit", "patch", "replace", "update", "modify", "mutate", "apply"], icon: "✎", color: "warning" },
-  { category: "search", tokens: ["grep", "search", "query", "match", "rg"], icon: "⌕", color: "accent" },
-  { category: "discover", tokens: ["find", "glob", "locate", "list", "ls", "tree", "walk"], icon: "⌖", color: "syntaxVariable" },
-  { category: "read", tokens: ["read", "open", "fetch", "get", "inspect", "view"], icon: "▤", color: "mdLink" },
-  { category: "write", tokens: ["write", "create", "save", "append"], icon: "+", color: "success" },
-  { category: "execute", tokens: ["bash", "shell", "exec", "execute", "run", "command", "terminal"], icon: "›", color: "bashMode" },
-  { category: "remove", tokens: ["delete", "remove", "unlink", "purge"], icon: "×", color: "error" },
-  { category: "interact", tokens: ["ask", "prompt", "confirm", "input", "question", "select"], icon: "?", color: "mdHeading" },
-  { category: "notify", tokens: ["notify", "notification", "alert", "message", "send"], icon: "!", color: "syntaxString" },
-  { category: "web", tokens: ["web", "http", "browser", "click", "crawl", "scrape"], icon: "◎", color: "borderAccent" },
-  { category: "visual", tokens: ["image", "imagegen", "screenshot", "photo", "diagram"], icon: "▣", color: "syntaxType" },
-  { category: "version", tokens: ["git", "commit", "branch", "merge", "rebase", "diff", "vcs"], icon: "±", color: "thinkingHigh" },
-  { category: "data", tokens: ["time", "weather", "sports", "finance", "stock", "market"], icon: "◷", color: "syntaxNumber" },
+  { category: "orchestration", tokens: ["parallel", "batch", "multi", "orchestrate", "fanout"], icon: "🧬", color: "syntaxKeyword" },
+  { category: "task", tokens: ["todo", "task", "plan", "checklist"], icon: "📋", color: "customMessageLabel" },
+  { category: "edit", tokens: ["edit", "patch", "replace", "update", "modify", "mutate", "apply"], icon: "✏️", color: "warning" },
+  { category: "search", tokens: ["grep", "search", "query", "match", "rg"], icon: "🔍", color: "accent" },
+  { category: "discover", tokens: ["find", "glob", "locate", "list", "ls", "tree", "walk"], icon: "📂", color: "syntaxVariable" },
+  { category: "read", tokens: ["read", "open", "fetch", "get", "inspect", "view"], icon: "📖", color: "mdLink" },
+  { category: "write", tokens: ["write", "create", "save", "append"], icon: "💾", color: "syntaxString" },
+  { category: "execute", tokens: ["bash", "shell", "exec", "execute", "run", "command", "terminal"], icon: "💻", color: "bashMode" },
+  { category: "remove", tokens: ["delete", "remove", "unlink", "purge"], icon: "🗑️", color: "error" },
+  { category: "interact", tokens: ["ask", "prompt", "confirm", "input", "question", "select"], icon: "💬", color: "mdHeading" },
+  { category: "notify", tokens: ["notify", "notification", "alert", "message", "send"], icon: "🔔", color: "thinkingHigh" },
+  { category: "web", tokens: ["web", "http", "browser", "click", "crawl", "scrape"], icon: "🌐", color: "borderAccent" },
+  { category: "visual", tokens: ["image", "imagegen", "screenshot", "photo", "diagram"], icon: "🖼️", color: "syntaxType" },
+  { category: "version", tokens: ["git", "commit", "branch", "merge", "rebase", "diff", "vcs"], icon: "🌿", color: "thinkingHigh" },
+  { category: "data", tokens: ["time", "weather", "sports", "finance", "stock", "market"], icon: "📊", color: "syntaxNumber" },
 ]);
 
 function isRecord(value) {
@@ -56,6 +58,36 @@ function safeThemeCall(theme, method, keyOrText, maybeText) {
 
 function fg(theme, color, text) {
   return safeThemeCall(theme, "fg", color, text);
+}
+
+function getForegroundAnsi(theme, color) {
+  try {
+    const direct = theme?.getFgAnsi;
+    if (typeof direct === "function") {
+      const value = direct.call(theme, color);
+      if (typeof value === "string") return value;
+    }
+  } catch {}
+  return "";
+}
+
+function emphasizeForegroundAnsi(theme, ansi) {
+  const match = String(ansi).match(/^\x1b\[38;2;(\d+);(\d+);(\d+)m$/);
+  if (!match) return ansi;
+  const lightTheme = String(theme?.name ?? "").toLowerCase().includes("light");
+  const target = lightTheme ? 0 : 255;
+  const ratio = lightTheme ? 0.16 : 0.28;
+  const channels = match.slice(1).map((value) => {
+    const channel = Number(value);
+    return Math.round(channel + (target - channel) * ratio);
+  });
+  return `\x1b[38;2;${channels.join(";")}m`;
+}
+
+function renderStatusBar(theme, color) {
+  const ansi = getForegroundAnsi(theme, color);
+  if (!ansi) return fg(theme, color, bold(theme, "▌"));
+  return `${emphasizeForegroundAnsi(theme, ansi)}\x1b[1m▌\x1b[22m\x1b[39m`;
 }
 
 function bg(theme, color, text) {
@@ -92,22 +124,22 @@ function bold(theme, text) {
   return safeThemeCall(theme, "bold", text);
 }
 
-function renderValue(value) {
-  if (typeof value === "string") return clipPlain(value);
+function renderValue(value, max = MAX_INLINE_VALUE) {
+  if (typeof value === "string") return clipPlain(value, max);
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) {
     const simple = value.filter((item) => ["string", "number", "boolean"].includes(typeof item)).slice(0, 3);
-    if (simple.length > 0) return clipPlain(simple.join(", "));
+    if (simple.length > 0) return clipPlain(simple.join(", "), max);
     return `${value.length} items`;
   }
   if (isRecord(value)) return "object";
   return "";
 }
 
-function firstDefined(args, keys) {
+function firstDefined(args, keys, max = MAX_INLINE_VALUE) {
   for (const key of keys) {
     if (!Object.hasOwn(args, key)) continue;
-    const rendered = renderValue(args[key]);
+    const rendered = renderValue(args[key], max);
     if (rendered) return { key, value: rendered };
   }
   return undefined;
@@ -116,20 +148,21 @@ function firstDefined(args, keys) {
 function targetDetail(name, args) {
   if (!isRecord(args)) return "";
 
-  const command = firstDefined(args, ["command", "cmd", "script"]);
+  const fullWidth = Number.POSITIVE_INFINITY;
+  const command = firstDefined(args, ["command", "cmd", "script"], fullWidth);
   if (command) return command.value;
 
-  const pattern = firstDefined(args, ["pattern", "query", "search", "needle"]);
-  const path = firstDefined(args, ["path", "file", "filename", "directory", "cwd", "root"]);
+  const pattern = firstDefined(args, ["pattern", "query", "search", "needle"], fullWidth);
+  const path = firstDefined(args, ["path", "file", "filename", "directory", "cwd", "root"], fullWidth);
   if (pattern && path) return `${pattern.value} in ${path.value}`;
   if (pattern) return pattern.value;
   if (path) return path.value;
 
-  const url = firstDefined(args, ["url", "uri", "endpoint"]);
+  const url = firstDefined(args, ["url", "uri", "endpoint"], fullWidth);
   if (url) return url.value;
 
-  const action = firstDefined(args, ["action", "operation", "method", "fn"]);
-  const subject = firstDefined(args, ["name", "id", "ticker", "location", "team", "package", "model"]);
+  const action = firstDefined(args, ["action", "operation", "method", "fn"], fullWidth);
+  const subject = firstDefined(args, ["name", "id", "ticker", "location", "team", "package", "model"], fullWidth);
   if (action && subject) return `${action.value} ${subject.value}`;
   if (subject) return subject.value;
   if (action) return action.value;
@@ -137,12 +170,12 @@ function targetDetail(name, args) {
   const pairs = [];
   for (const [key, value] of Object.entries(args)) {
     if (OMIT_KEY.test(key) || SECRET_KEY.test(key)) continue;
-    const rendered = renderValue(value);
+    const rendered = renderValue(value, fullWidth);
     if (!rendered) continue;
     pairs.push(`${key}=${rendered}`);
     if (pairs.length >= 2) break;
   }
-  return clipPlain(pairs.join(" "));
+  return oneLine(pairs.join(" "));
 }
 
 function inferredIntent(name, args) {
@@ -269,7 +302,7 @@ export function formatElapsed(milliseconds) {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-function expandedLines(args, result, theme) {
+function expandedLines(args, result, theme, statusBar) {
   const lines = [];
   const details = result?.details;
   const diff = isRecord(details) && typeof details.diff === "string" ? details.diff.replace(/\s+$/, "") : "";
@@ -280,19 +313,19 @@ function expandedLines(args, result, theme) {
         : line.startsWith("-") && !line.startsWith("---")
           ? "toolDiffRemoved"
           : "toolDiffContext";
-      lines.push(`  ${fg(theme, color, line)}`);
+      lines.push(`${statusBar}   ${fg(theme, color, line)}`);
     }
     return lines;
   }
 
   const text = textFromResult(result).replace(/\s+$/, "");
   if (text) {
-    for (const line of text.split("\n")) lines.push(`  ${fg(theme, "toolOutput", line)}`);
+    for (const line of text.split("\n")) lines.push(`${statusBar}   ${fg(theme, "toolOutput", line)}`);
     return lines;
   }
 
   if (isRecord(args) && typeof args.content === "string") {
-    for (const line of args.content.split("\n")) lines.push(`  ${fg(theme, "toolOutput", line)}`);
+    for (const line of args.content.split("\n")) lines.push(`${statusBar}   ${fg(theme, "toolOutput", line)}`);
   }
   return lines;
 }
@@ -309,6 +342,34 @@ function fitToolLine(line, width, truncateToWidth, visibleWidth) {
   return `${truncateToWidth(head, Math.max(1, max - tailWidth - 1), "…")} ${tail}`;
 }
 
+function fitLeftRightLine(left, right, width, truncateToWidth, visibleWidth) {
+  const max = Math.max(1, width);
+  if (!right) return fitToolLine(left, max, truncateToWidth, visibleWidth);
+  const rightWidth = visibleWidth(right);
+  if (rightWidth >= max) return truncateToWidth(right, max, "…");
+
+  const leftBudget = max - rightWidth - 1;
+  if (leftBudget <= 0) return `${" ".repeat(max - rightWidth)}${right}`;
+
+  const fittedLeft = visibleWidth(left) <= leftBudget
+    ? left
+    : truncateToWidth(left, leftBudget, "…");
+  const gap = Math.max(1, max - visibleWidth(fittedLeft) - rightWidth);
+  return `${fittedLeft}${" ".repeat(gap)}${right}`;
+}
+
+function fitTrailingSegmentLine(left, right, width, truncateToWidth, visibleWidth) {
+  const max = Math.max(1, width);
+  if (!right) return fitToolLine(left, max, truncateToWidth, visibleWidth);
+  const rightWidth = visibleWidth(right);
+  if (rightWidth >= max) return truncateToWidth(right, max, "…");
+  if (visibleWidth(left) + rightWidth + 1 <= max) return `${left} ${right}`;
+
+  const leftBudget = max - rightWidth - 1;
+  if (leftBudget <= 0) return `${" ".repeat(max - rightWidth)}${right}`;
+  return `${truncateToWidth(left, leftBudget, "…")} ${right}`;
+}
+
 // Pi uses a plain Container for renderShell "self", so this component owns the full-row background.
 class WidthAwareLines {
   constructor(source, background, truncateToWidth, visibleWidth) {
@@ -322,10 +383,16 @@ class WidthAwareLines {
 
   render(width) {
     const max = Math.max(1, width);
-    const lines = typeof this.source === "function" ? this.source() : this.source;
+    const horizontalPadding = max >= 3 ? HORIZONTAL_PADDING : 0;
+    const contentWidth = Math.max(1, max - horizontalPadding * 2);
+    const lines = typeof this.source === "function" ? this.source(contentWidth) : this.source;
     return lines.map((line) => {
-      const fitted = fitToolLine(line, max, this.truncateToWidth, this.visibleWidth);
-      const padded = fitted + " ".repeat(Math.max(0, max - this.visibleWidth(fitted)));
+      const fitted = fitToolLine(line, contentWidth, this.truncateToWidth, this.visibleWidth);
+      const rightPadding = Math.max(
+        horizontalPadding,
+        max - horizontalPadding - this.visibleWidth(fitted),
+      );
+      const padded = `${" ".repeat(horizontalPadding)}${fitted}${" ".repeat(rightPadding)}`;
       return this.background(padded);
     });
   }
@@ -349,13 +416,25 @@ function ensureTimer(context) {
   context.state[STATE_TIMER] = timer;
 }
 
-function getTiming(timings, toolCallId, context) {
+function getRunningElapsed(timings, toolCallId, context) {
   const tracked = timings.get(toolCallId);
+  if (tracked) return Math.max(0, (tracked.endedAt ?? Date.now()) - tracked.startedAt);
+
   const stateStarted = context?.state?.[STATE_STARTED_AT];
-  const startedAt = tracked?.startedAt ?? (typeof stateStarted === "number" ? stateStarted : Date.now());
+  const startedAt = typeof stateStarted === "number" ? stateStarted : Date.now();
   if (context?.state && typeof stateStarted !== "number") context.state[STATE_STARTED_AT] = startedAt;
-  const endedAt = tracked?.endedAt ?? Date.now();
-  return { startedAt, endedAt, elapsedMs: Math.max(0, endedAt - startedAt) };
+  return Math.max(0, Date.now() - startedAt);
+}
+
+function getCompletedElapsed(timings, toolCallId, context) {
+  const stateElapsed = context?.state?.[STATE_ELAPSED_MS];
+  if (typeof stateElapsed === "number" && Number.isFinite(stateElapsed) && stateElapsed >= 0) {
+    return stateElapsed;
+  }
+
+  const tracked = timings.get(toolCallId);
+  if (!tracked) return undefined;
+  return Math.max(0, (tracked.endedAt ?? Date.now()) - tracked.startedAt);
 }
 
 export function getToolVisual(name) {
@@ -371,30 +450,30 @@ export function getToolVisual(name) {
   return DEFAULT_TOOL_VISUAL;
 }
 
-function buildLines(name, args, result, options, theme) {
+function buildLines(name, args, result, options, theme, width, truncateToWidth, visibleWidth) {
   const isRunning = options.isRunning === true;
   const isError = options.isError === true;
-  const elapsed = formatElapsed(options.elapsedMs ?? 0);
-  const mark = isRunning
-    ? fg(theme, "dim", "·")
-    : isError
-      ? fg(theme, "error", "✗")
-      : fg(theme, "success", "✓");
+  const statusColor = isRunning ? "warning" : isError ? "error" : "success";
+  const statusBar = renderStatusBar(theme, statusColor);
   const visual = getToolVisual(name);
-  const toolIcon = fg(theme, visual.color, visual.icon);
   const toolName = fg(theme, visual.color, bold(theme, name));
-  const connector = fg(theme, visual.color, "└");
+  const connector = fg(theme, visual.color, "╰");
   const headline = reasoningHeadline(name, args);
   const target = targetDetail(name, args);
   const summaryText = isRunning ? "running" : genericResultSummary(name, args, result, isError);
-  const summary = fg(theme, isError ? "error" : isRunning ? "dim" : "success", summaryText);
-  const elapsedText = fg(theme, "dim", `· ${elapsed}`);
-  const detail = target ? `${fg(theme, "dim", target)} ${fg(theme, "dim", "→")} ` : `${fg(theme, "dim", "→")} `;
+  const summary = fg(theme, isError ? "error" : "warning", summaryText);
+  const elapsedText = Number.isFinite(options.elapsedMs)
+    ? fg(theme, "warning", formatElapsed(options.elapsedMs))
+    : "";
+  const iconIndent = " ".repeat(Math.max(2, visibleWidth(visual.icon)));
+  const firstLeft = `${statusBar} ${visual.icon} ${toolName}${headline ? ` ${fg(theme, "text", headline)}` : ""}`;
+  const secondLeft = `${statusBar} ${iconIndent} ${connector}${target ? ` ${fg(theme, "dim", target)}` : ""}`;
+  const secondRight = `${fg(theme, "dim", "→")} ${summary}`;
   const lines = [
-    `${mark} ${toolIcon} ${toolName}${headline ? ` ${fg(theme, "text", headline)}` : ""}`,
-    `  ${connector} ${detail}${summary} ${elapsedText}`,
+    fitLeftRightLine(firstLeft, elapsedText, width, truncateToWidth, visibleWidth),
+    fitTrailingSegmentLine(secondLeft, secondRight, width, truncateToWidth, visibleWidth),
   ];
-  if (options.expanded && !isRunning) lines.push(...expandedLines(args, result, theme));
+  if (options.expanded && !isRunning) lines.push(...expandedLines(args, result, theme, statusBar));
   return lines;
 }
 
@@ -486,10 +565,10 @@ export function createUniversalTidy(options) {
         if (!context?.isPartial) return new EmptyComponent();
         ensureTimer(context);
         return new WidthAwareLines(
-          () => buildLines(source.name, args ?? {}, {}, {
+          (width) => buildLines(source.name, args ?? {}, {}, {
             isRunning: true,
-            elapsedMs: getTiming(timings, context.toolCallId, context).elapsedMs,
-          }, theme),
+            elapsedMs: getRunningElapsed(timings, context.toolCallId, context),
+          }, theme, width, truncateToWidth, visibleWidth),
           (text) => paintBackground(theme, "toolPendingBg", text),
           truncateToWidth,
           visibleWidth,
@@ -498,16 +577,17 @@ export function createUniversalTidy(options) {
       renderResult(result, renderOptions, theme, context) {
         if (renderOptions?.isPartial) return new EmptyComponent();
         clearTimer(context?.state);
-        const timing = getTiming(timings, context?.toolCallId, context);
+        const elapsedMs = getCompletedElapsed(timings, context?.toolCallId, context);
+        if (context?.state && elapsedMs !== undefined) context.state[STATE_ELAPSED_MS] = elapsedMs;
+        if (context?.state) delete context.state[STATE_STARTED_AT];
         if (context?.toolCallId) timings.delete(context.toolCallId);
         const isError = context?.isError ?? result?.isError ?? false;
-        const lines = buildLines(source.name, context?.args ?? {}, result, {
-          isError,
-          expanded: renderOptions?.expanded === true,
-          elapsedMs: timing.elapsedMs,
-        }, theme);
         return new WidthAwareLines(
-          lines,
+          (width) => buildLines(source.name, context?.args ?? {}, result, {
+            isError,
+            expanded: renderOptions?.expanded === true,
+            elapsedMs,
+          }, theme, width, truncateToWidth, visibleWidth),
           (text) => paintBackground(theme, isError ? "toolErrorBg" : "toolSuccessBg", text),
           truncateToWidth,
           visibleWidth,

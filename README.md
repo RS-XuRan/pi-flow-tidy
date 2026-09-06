@@ -1,44 +1,65 @@
 # pi-flow-tidy
 
-面向 Pi 的通用紧凑工具输出扩展：保留工具原始名称，以固定两行显示推理摘要、目标、结果摘要和耗时，并自动兼容会话启动后动态注册的第三方工具。不同工具类别使用稳定的图标和主题感知颜色，便于快速扫视区分。
+面向 Pi 的通用紧凑工具输出扩展：保留工具原始名称，以固定两行显示推理摘要、目标、结果摘要和耗时，并自动兼容会话启动后动态注册的第三方工具。新版视觉采用高亮状态竖条、统一双列彩色 Emoji、工具语义主题色、轻量状态底色与右对齐耗时，便于快速扫视并减轻连续调用时的色块压迫感。
 
 ```text
-✓ ⌕ custom_search locate matching source files
-  └ createUniversalTidy in runtime/universal-tidy.mjs → 2 matches in 1 file · 27ms
+ ▌ 🔍 custom_search locate matching source files                              27ms
+ ▌    ╰ createUniversalTidy in runtime/universal-tidy.mjs → 2 matches in 1 file
 ```
+
+实际终端中，左侧加粗 `▌` 使用高亮状态色，工具名称和 `╰` 使用分类主题色，结果摘要与耗时使用醒目的 `warning` 黄色，Emoji 保留终端原生彩色字形。
 
 ## 功能
 
-- 折叠状态固定显示两行。
+- 折叠状态固定显示两行，并在条带左右各保留 1 列空白。
 - 保留工具原始名称，不创建别名。
-- 根据工具名称自动分类，为命令图标、名称和第二行连接符应用不同主题色。
-- 执行状态与工具类别分离：成功、运行中、失败标记仍保持统一语义。
+- 使用统一双列彩色 Emoji 表达工具类别，避免单色字符与 Emoji 混排造成的宽度抖动。
+- 工具名称和第二行 `╰` 连接符使用对应的 Pi 语义主题色。
+- 执行状态与工具类别分离：左侧加粗 `▌` 是唯一状态指示，成功为高亮绿色、失败为高亮红色、运行中为高亮警告色。
+- 运行中、成功和失败分别使用 `toolPendingBg`、`toolSuccessBg`、`toolErrorBg` 轻量状态底色。
+- 结果摘要与耗时使用 `warning` 黄色；耗时固定显示在第一行最右侧。
+- 第二行的 `→ done` 等结果尾部默认紧跟目标内容；仅当目标过长时才截断目标并将结果尾部贴到最右侧。
+- 耗时只保存在当前进程内存中，不写入工具结果或会话文件；历史记录缺少计时数据时直接留空。
 - 内建工具和第三方工具使用统一输出风格。
 - 会话启动后动态注册的新工具也会自动接入。
 - 为普通对象参数增加可选 `reasoning` 字段，并在调用原工具前移除该字段。
 - 已经自带 `reasoning` 的工具保持原始参数语义。
 - 未提供推理参数时，根据 action、path、pattern、command 等参数生成摘要。
-- 第二行统一显示目标、结果摘要和耗时。
-- 展开状态继续显示完整输出或 diff。
+- 展开状态继续显示完整输出或 diff，并延续左侧状态竖条。
 - 不依赖任何特定搜索、文件管理或工具增强扩展。
 
 ## 视觉分类
 
-分类基于原始工具名中的词元，不改名、不绑定具体第三方扩展。常见类别包括：
+分类基于原始工具名中的词元，不改名、不绑定具体第三方扩展。图标均选用 Pi 宽度计算为 2 列的彩色 Emoji：
 
-| 类别 | 代表名称 | 图标 | 默认主题色用途 |
-|---|---|---:|---|
-| 编辑 | `edit`、`patch`、`replace` | `✎` | warning |
-| 搜索 | `grep`、`search`、`query` | `⌕` | accent |
-| 任务 | `todo`、`task`、`plan` | `☑` | custom message label |
-| 读取 | `read`、`open`、`inspect` | `▤` | markdown link |
-| 写入 | `write`、`create`、`save` | `+` | success |
-| 查找 | `find`、`glob`、`list` | `⌖` | syntax variable |
-| 执行 | `bash`、`shell`、`exec` | `›` | bash mode |
-| 删除 | `delete`、`remove`、`purge` | `×` | error |
-| 其他 | 未识别的新工具 | `◆` | tool title |
+| 类别 | 代表名称 | Emoji | Pi 语义主题色 |
+|---|---|:---:|---|
+| 编排 | `parallel`、`batch`、`multi` | `🧬` | `syntaxKeyword` |
+| 任务 | `todo`、`task`、`plan` | `📋` | `customMessageLabel` |
+| 编辑 | `edit`、`patch`、`replace` | `✏️` | `warning` |
+| 搜索 | `grep`、`search`、`query` | `🔍` | `accent` |
+| 查找 | `find`、`glob`、`list` | `📂` | `syntaxVariable` |
+| 读取 | `read`、`open`、`inspect` | `📖` | `mdLink` |
+| 写入 | `write`、`create`、`save` | `💾` | `syntaxString` |
+| 执行 | `bash`、`shell`、`exec` | `💻` | `bashMode` |
+| 删除 | `delete`、`remove`、`purge` | `🗑️` | `error` |
+| 交互 | `ask`、`prompt`、`confirm` | `💬` | `mdHeading` |
+| 通知 | `notify`、`alert`、`message` | `🔔` | `thinkingHigh` |
+| 网络 | `web`、`http`、`browser` | `🌐` | `borderAccent` |
+| 视觉 | `image`、`screenshot`、`diagram` | `🖼️` | `syntaxType` |
+| 版本 | `git`、`commit`、`branch` | `🌿` | `thinkingHigh` |
+| 数据 | `time`、`weather`、`finance` | `📊` | `syntaxNumber` |
+| 通用 | 未识别的新工具 | `🧩` | `toolTitle` |
 
-颜色取自当前 Pi 主题，因此会自动适应暗色、亮色和自定义主题。未知工具使用通用后备样式，不影响执行和两行布局。
+### 状态与布局
+
+| 状态 | 左侧竖条颜色 | 背景 |
+|---|---|---|
+| 运行中 | 加粗 `warning` | `toolPendingBg` |
+| 成功 | 加粗 `success` | `toolSuccessBg` |
+| 失败 | 加粗 `error` | `toolErrorBg` |
+
+状态色只出现在左侧加粗 `▌`，不再显示重复的 `✓`、`✗` 标记。成功与失败背景分别保留浅绿色、浅红色语义，结果摘要和耗时保持黄色。工具名称与 `╰` 连接符取自当前 Pi 主题，因此会自动适应暗色、亮色和自定义主题；Emoji 使用终端原生彩色渲染。未知工具使用通用后备样式，不影响执行和两行布局。
 
 ## 架构说明
 

@@ -2,8 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createUniversalTidy, getToolVisual } from "../runtime/universal-tidy.mjs";
 
+const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+const emojiPattern = /\p{Extended_Pictographic}/u;
+
+function stripStyles(value) {
+  return String(value)
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/<\/?[^>]+>/g, "");
+}
+
 function visibleWidth(value) {
-  return String(value).replace(/\x1b\[[0-9;]*m/g, "").length;
+  let width = 0;
+  for (const { segment } of graphemeSegmenter.segment(stripStyles(value))) {
+    width += emojiPattern.test(segment) ? 2 : [...segment].length;
+  }
+  return width;
 }
 
 function truncateToWidth(value, width, ellipsis = "") {
@@ -41,19 +54,201 @@ function renderCompletedTool(name) {
   ).render(120);
 }
 
-test("assigns distinct icons and colors with a generic fallback", () => {
-  assert.deepEqual(getToolVisual("edit"), { category: "edit", icon: "✎", color: "warning" });
-  assert.deepEqual(getToolVisual("third_party_grep"), { category: "search", icon: "⌕", color: "accent" });
-  assert.deepEqual(getToolVisual("todo_update"), { category: "task", icon: "☑", color: "customMessageLabel" });
-  assert.deepEqual(getToolVisual("vendor_widget"), { category: "generic", icon: "◆", color: "toolTitle" });
+test("assigns full-color emoji and semantic colors with a generic fallback", () => {
+  assert.deepEqual(getToolVisual("edit"), { category: "edit", icon: "✏️", color: "warning" });
+  assert.deepEqual(getToolVisual("third_party_grep"), { category: "search", icon: "🔍", color: "accent" });
+  assert.deepEqual(getToolVisual("todo_update"), { category: "task", icon: "📋", color: "customMessageLabel" });
+  assert.deepEqual(getToolVisual("write"), { category: "write", icon: "💾", color: "syntaxString" });
+  assert.deepEqual(getToolVisual("bash"), { category: "execute", icon: "💻", color: "bashMode" });
+  assert.deepEqual(getToolVisual("vendor_widget"), { category: "generic", icon: "🧩", color: "toolTitle" });
+
+  const representativeNames = [
+    "parallel", "todo", "edit", "grep", "find", "read", "write", "bash",
+    "delete", "ask", "notify", "web", "image", "git", "time", "vendor_widget",
+  ];
+  for (const name of representativeNames) {
+    assert.equal(visibleWidth(getToolVisual(name).icon), 2, `${name} icon width`);
+  }
 
   const editLines = renderCompletedTool("edit");
   const grepLines = renderCompletedTool("grep");
   const todoLines = renderCompletedTool("todo");
-  assert.match(editLines[0], /<warning>✎<\/warning> <warning><b>edit<\/b><\/warning>/);
-  assert.match(grepLines[0], /<accent>⌕<\/accent> <accent><b>grep<\/b><\/accent>/);
-  assert.match(todoLines[0], /<customMessageLabel>☑<\/customMessageLabel> <customMessageLabel><b>todo<\/b><\/customMessageLabel>/);
-  assert.match(editLines[1], /<warning>└<\/warning>/);
+  assert.match(editLines[0], /<success><b>▌<\/b><\/success> ✏️ <warning><b>edit<\/b><\/warning>/);
+  assert.match(grepLines[0], /<success><b>▌<\/b><\/success> 🔍 <accent><b>grep<\/b><\/accent>/);
+  assert.match(todoLines[0], /<success><b>▌<\/b><\/success> 📋 <customMessageLabel><b>todo<\/b><\/customMessageLabel>/);
+  assert.match(editLines[1], /<warning>╰<\/warning>/);
+});
+
+test("uses distinct state backgrounds, bright bars, and yellow timing", async () => {
+  const backgroundCalls = [];
+  const semanticTheme = {
+    fg(color, text) { return `<${color}>${text}</${color}>`; },
+    bg(color, text) {
+      backgroundCalls.push(color);
+      return text;
+    },
+    getBgAnsi() { return ""; },
+    bold(text) { return `<b>${text}</b>`; },
+  };
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  const tool = runtime.decorateToolDefinition({
+    name: "bash",
+    label: "bash",
+    description: "Test tool",
+    parameters: { type: "object", properties: { command: { type: "string" } } },
+    async execute() {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+      return { content: [{ type: "text", text: "ok" }], details: {} };
+    },
+  });
+  const args = { reasoning: "check repository availability", command: "git status --short" };
+  const state = {};
+  const runningLines = tool.renderCall(args, semanticTheme, {
+    args,
+    toolCallId: "layout-running",
+    invalidate() {},
+    state,
+    isPartial: true,
+  }).render(64);
+  const successResult = await tool.execute("layout-running", args, undefined, undefined, {});
+  const successLines = tool.renderResult(
+    successResult,
+    { expanded: false, isPartial: false },
+    semanticTheme,
+    { args, toolCallId: "layout-running", state, isError: false },
+  ).render(64);
+  await tool.execute("layout-error", args, undefined, undefined, {});
+  const errorLines = tool.renderResult(
+    {
+      content: [{ type: "text", text: "command failed" }],
+      details: {},
+      isError: true,
+    },
+    { expanded: false, isPartial: false },
+    semanticTheme,
+    { args, toolCallId: "layout-error", state: {}, isError: true },
+  ).render(64);
+
+  for (const line of [...runningLines, ...successLines, ...errorLines]) {
+    assert.equal(visibleWidth(line), 64);
+    const plain = stripStyles(line);
+    assert.ok(plain.startsWith(" "));
+    assert.ok(plain.endsWith(" "));
+    assert.doesNotMatch(plain, /[✓✗]/);
+  }
+
+  assert.ok(runningLines.every((line) => line.includes("<warning><b>▌</b></warning>")));
+  assert.ok(successLines.every((line) => line.includes("<success><b>▌</b></success>")));
+  assert.ok(errorLines.every((line) => line.includes("<error><b>▌</b></error>")));
+  assert.match(successLines[0], /💻 <bashMode><b>bash<\/b><\/bashMode>/);
+  assert.match(successLines[0], /<warning>\d+ms<\/warning>/);
+  assert.match(successLines[1], /<bashMode>╰<\/bashMode>/);
+  assert.match(successLines[1], /<warning>done<\/warning>/);
+  assert.match(errorLines[0], /<warning>\d+ms<\/warning>/);
+  assert.match(errorLines[1], /<error>command failed<\/error>/);
+  assert.deepEqual(successResult.details, {});
+
+  const successHeader = stripStyles(successLines[0]);
+  const timing = successHeader.match(/(\d+(?:ms|s)|\d+m \d{2}s|\d+h \d{2}m) $/);
+  assert.ok(timing);
+  assert.equal(successHeader.indexOf(timing[1]), 64 - timing[1].length - 1);
+  assert.doesNotMatch(stripStyles(successLines[1]), /\d+(?:ms|s) $/);
+  const successDetail = stripStyles(successLines[1]);
+  assert.match(successDetail, /╰ git status --short → done\s+$/);
+  assert.deepEqual(backgroundCalls, [
+    "toolPendingBg", "toolPendingBg",
+    "toolSuccessBg", "toolSuccessBg",
+    "toolErrorBg", "toolErrorBg",
+  ]);
+});
+
+test("uses live elapsed time without writing result metadata", async () => {
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  const tool = runtime.decorateToolDefinition({
+    name: "bash",
+    label: "bash",
+    description: "Test tool",
+    parameters: { type: "object", properties: {} },
+    async execute() {
+      await new Promise((resolve) => setTimeout(resolve, 12));
+      return { content: [{ type: "text", text: "ok" }], details: {} };
+    },
+  });
+
+  const result = await tool.execute("live-timing", {}, undefined, undefined, {});
+  assert.deepEqual(result.details, {});
+  const state = {};
+  const liveLines = tool.renderResult(
+    result,
+    { expanded: false, isPartial: false },
+    annotatedTheme,
+    { args: {}, toolCallId: "live-timing", state, isError: false },
+  ).render(72);
+  assert.match(liveLines[0], /<warning>\d+ms<\/warning>/);
+  const rerenderedLines = tool.renderResult(
+    result,
+    { expanded: true, isPartial: false },
+    annotatedTheme,
+    { args: {}, toolCallId: "live-timing", state, isError: false },
+  ).render(72);
+  assert.match(rerenderedLines[0], /<warning>\d+ms<\/warning>/);
+
+  const replayLines = tool.renderResult(
+    { content: [{ type: "text", text: "ok" }], details: {} },
+    { expanded: false, isPartial: false },
+    annotatedTheme,
+    {
+      args: {},
+      toolCallId: "historical-replay",
+      state: { universalTidyStartedAt: Date.now() - 276 },
+      isError: false,
+    },
+  ).render(72);
+  assert.doesNotMatch(stripStyles(replayLines[0]), /276ms/);
+  assert.doesNotMatch(replayLines[0], /<warning>\d+(?:ms|s)<\/warning>/);
+});
+
+test("keeps result summaries adjacent unless the target overflows", () => {
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  const tool = runtime.decorateToolDefinition({
+    name: "bash",
+    label: "bash",
+    description: "Test tool",
+    parameters: { type: "object", properties: { command: { type: "string" } } },
+    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },
+  });
+  const result = { content: [{ type: "text", text: "ok" }], details: {} };
+  const shortLines = tool.renderResult(
+    result,
+    { expanded: false, isPartial: false },
+    theme,
+    {
+      args: { reasoning: "run tests", command: "npm test" },
+      toolCallId: "short-detail",
+      state: {},
+      isError: false,
+    },
+  ).render(96);
+  assert.match(stripStyles(shortLines[1]), /╰ npm test → done\s+$/);
+
+  const width = 190;
+  const args = {
+    reasoning: "run a long validation command",
+    command: "npm --prefix C:/Users/test/.pi/agent/git/github.com/vendor/package test && npm --prefix C:/Users/test/.pi/agent/git/github.com/vendor/package run check && npm --prefix C:/Users/test/.pi/agent/git/github.com/vendor/package pack --dry-run",
+  };
+  const lines = tool.renderResult(
+    result,
+    { expanded: false, isPartial: false },
+    theme,
+    { args, toolCallId: "long-detail", state: {}, isError: false },
+  ).render(width);
+
+  const detail = stripStyles(lines[1]);
+  const resultTail = "→ done";
+  assert.equal(visibleWidth(detail), width);
+  assert.match(detail, /npm --prefix/);
+  assert.ok(detail.endsWith(`… ${resultTail} `));
+  assert.equal(detail.indexOf(resultTail), width - resultTail.length - 1);
 });
 
 test("keeps full-row backgrounds active after truncation resets ANSI styles", () => {
@@ -105,6 +300,9 @@ test("keeps full-row backgrounds active after truncation resets ANSI styles", ()
 
   assert.equal(tool.renderShell, "self");
   assert.equal(backgroundCalls.length, 4);
+  assert.deepEqual(backgroundCalls, [
+    "toolPendingBg", "toolPendingBg", "toolErrorBg", "toolErrorBg",
+  ]);
   assert.ok([...runningLines, ...errorLines].every((line) => visibleWidth(line) === 48));
   assert.ok([...runningLines, ...errorLines].every((line) => line.startsWith(backgroundAnsi)));
   assert.ok([...runningLines, ...errorLines].every((line) => line.endsWith(resetBackground)));
@@ -183,6 +381,7 @@ test("decorates raw tool names and strips injected reasoning", async () => {
 
   const result = await tool.execute("call-1", prepared, undefined, undefined, {});
   assert.deepEqual(executedArgs, { pattern: "match", path: "src" });
+  assert.deepEqual(result.details, { totalMatched: 2, totalFiles: 2 });
 
   const resultLines = tool.renderResult(
     result,
@@ -191,7 +390,9 @@ test("decorates raw tool names and strips injected reasoning", async () => {
     { ...context, isPartial: false },
   ).render(120);
   assert.equal(resultLines.length, 2);
-  assert.match(resultLines[1], /2 matches in 2 files · \d+(?:ms|s)/);
+  assert.match(stripStyles(resultLines[0]), /\d+(?:ms|s) $/);
+  assert.match(resultLines[1], /2 matches in 2 files/);
+  assert.doesNotMatch(resultLines[1], / · \d+(?:ms|s)/);
 });
 
 test("preserves an existing reasoning parameter", async () => {
