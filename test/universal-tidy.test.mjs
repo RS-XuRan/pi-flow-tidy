@@ -353,6 +353,8 @@ test("decorates raw tool names and strips injected reasoning", async () => {
   assert.equal(tool.label, "third_party_search");
   assert.equal(tool.renderShell, "self");
   assert.equal(tool.parameters.properties.reasoning.type, "string");
+  assert.match(tool.parameters.properties.reasoning.description, /Use Chinese\./);
+  assert.match(tool.promptGuidelines.at(-1), /concise Chinese goal/);
   assert.deepEqual(tool.parameters.required, ["pattern"]);
 
   const rawArgs = { reasoning: "locate matching source files", pattern: "match", path: "src" };
@@ -419,6 +421,55 @@ test("preserves an existing reasoning parameter", async () => {
   const args = { reasoning: "preserve semantic input", value: "x" };
   await tool.execute("call-2", args, undefined, undefined, {});
   assert.deepEqual(executedArgs, args);
+});
+
+test("provides compact renderers for historical tools before extensions bind", () => {
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  const knownRenderer = { renderShell: "default" };
+
+  class FakeInteractiveMode {
+    constructor() {
+      this.definitions = new Map([["known_tool", knownRenderer]]);
+    }
+    getRegisteredToolDefinition(name) { return this.definitions.get(name); }
+  }
+
+  assert.equal(runtime.installInteractiveModePatch(FakeInteractiveMode), true);
+  const mode = new FakeInteractiveMode();
+  assert.equal(mode.getRegisteredToolDefinition("known_tool"), knownRenderer);
+
+  const historical = mode.getRegisteredToolDefinition("ffgrep");
+  assert.equal(historical.renderShell, "self");
+  const result = {
+    content: [{ type: "text", text: "src/a.ts:1:match\nsrc/b.ts:2:match" }],
+    details: { totalMatched: 2, totalFiles: 2 },
+  };
+  const context = {
+    args: { reasoning: "locate matches", pattern: "match", path: "src" },
+    toolCallId: "historical-ffgrep",
+    state: {},
+    isPartial: false,
+    isError: false,
+  };
+  const collapsed = historical.renderResult(
+    result,
+    { expanded: false, isPartial: false },
+    theme,
+    context,
+  ).render(120);
+  assert.equal(collapsed.length, 2);
+  assert.match(collapsed[1], /2 matches in 2 files/);
+  assert.doesNotMatch(collapsed.join("\n"), /src\/a\.ts/);
+
+  const expanded = historical.renderResult(
+    result,
+    { expanded: true, isPartial: false },
+    theme,
+    { ...context, state: {} },
+  ).render(120);
+  assert.ok(expanded.length > 2);
+  assert.match(expanded.join("\n"), /src\/a\.ts:1:match/);
+  assert.equal(runtime.getStatus().interactiveModePatchInstalled, true);
 });
 
 test("decorates built-in, SDK, and dynamically registered tools", () => {

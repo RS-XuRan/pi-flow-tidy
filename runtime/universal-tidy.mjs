@@ -1,10 +1,11 @@
 const DECORATED = Symbol.for("pi.flowTidy.decorated");
 const PATCHED = Symbol.for("pi.flowTidy.agentSessionPatched");
+const INTERACTIVE_PATCHED = Symbol.for("pi.flowTidy.interactiveModePatched");
 const STATE_STARTED_AT = "universalTidyStartedAt";
 const STATE_TIMER = "universalTidyTimer";
 const STATE_ELAPSED_MS = "universalTidyElapsedMs";
 const REASONING_DESCRIPTION =
-  "Short phrase (12 words or fewer) stating the goal or intent. Do not restate the target, path, command, or query.";
+  "Short phrase (12 words or fewer) stating the goal or intent. Use Chinese. Do not restate the target, path, command, or query.";
 const SECRET_KEY = /(token|secret|password|passwd|api[_-]?key|authorization|credential|cookie)/i;
 const OMIT_KEY = /^(reasoning|content|data|body|payload|patch|oldText|newText|edits|tool_uses)$/i;
 const MAX_INLINE_VALUE = 140;
@@ -516,7 +517,9 @@ export function createUniversalTidy(options) {
 
   const timings = new Map();
   const decoratedNames = new Set();
+  const historicalRenderers = new Map();
   let patchInstalled = false;
+  let interactivePatchInstalled = false;
   let patchFailure = undefined;
 
   function scheduleTimingCleanup(toolCallId, timing) {
@@ -526,6 +529,54 @@ export function createUniversalTidy(options) {
     timer.unref?.();
   }
 
+  function createTidyRenderers(toolName) {
+    return {
+      renderShell: "self",
+      renderCall(args, theme, context) {
+        if (!context?.isPartial) return new EmptyComponent();
+        ensureTimer(context);
+        return new WidthAwareLines(
+          (width) => buildLines(toolName, args ?? {}, {}, {
+            isRunning: true,
+            elapsedMs: getRunningElapsed(timings, context.toolCallId, context),
+          }, theme, width, truncateToWidth, visibleWidth),
+          (text) => paintBackground(theme, "toolPendingBg", text),
+          truncateToWidth,
+          visibleWidth,
+        );
+      },
+      renderResult(result, renderOptions, theme, context) {
+        if (renderOptions?.isPartial) return new EmptyComponent();
+        clearTimer(context?.state);
+        const elapsedMs = getCompletedElapsed(timings, context?.toolCallId, context);
+        if (context?.state && elapsedMs !== undefined) context.state[STATE_ELAPSED_MS] = elapsedMs;
+        if (context?.state) delete context.state[STATE_STARTED_AT];
+        if (context?.toolCallId) timings.delete(context.toolCallId);
+        const isError = context?.isError ?? result?.isError ?? false;
+        return new WidthAwareLines(
+          (width) => buildLines(toolName, context?.args ?? {}, result, {
+            isError,
+            expanded: renderOptions?.expanded === true,
+            elapsedMs,
+          }, theme, width, truncateToWidth, visibleWidth),
+          (text) => paintBackground(theme, isError ? "toolErrorBg" : "toolSuccessBg", text),
+          truncateToWidth,
+          visibleWidth,
+        );
+      },
+    };
+  }
+
+  function getHistoricalRenderer(toolName) {
+    if (typeof toolName !== "string" || !toolName) return undefined;
+    const cached = historicalRenderers.get(toolName);
+    if (cached) return cached;
+    const renderer = createTidyRenderers(toolName);
+    historicalRenderers.set(toolName, renderer);
+    decoratedNames.add(toolName);
+    return renderer;
+  }
+
   function decorateToolDefinition(source) {
     if (!source || typeof source !== "object" || source[DECORATED]) return source;
     if (typeof source.name !== "string" || typeof source.execute !== "function") return source;
@@ -533,14 +584,13 @@ export function createUniversalTidy(options) {
     const inject = canInjectReasoning(source.parameters);
     const sourcePrepare = source.prepareArguments;
     const sourceExecute = source.execute;
-    const guideline = `For ${source.name}, pass reasoning as a concise goal or intent, not a restatement of the target.`;
+    const guideline = `For ${source.name}, pass reasoning as a concise Chinese goal or intent, not a restatement of the target.`;
     const wrapped = {
       ...source,
       parameters: inject ? injectReasoning(source.parameters) : source.parameters,
       promptGuidelines: inject
         ? [...(Array.isArray(source.promptGuidelines) ? source.promptGuidelines : []), guideline]
         : source.promptGuidelines,
-      renderShell: "self",
       prepareArguments: inject
         ? (rawArgs) => {
             const stripped = stripReasoning(rawArgs);
@@ -561,38 +611,7 @@ export function createUniversalTidy(options) {
           scheduleTimingCleanup(toolCallId, timing);
         }
       },
-      renderCall(args, theme, context) {
-        if (!context?.isPartial) return new EmptyComponent();
-        ensureTimer(context);
-        return new WidthAwareLines(
-          (width) => buildLines(source.name, args ?? {}, {}, {
-            isRunning: true,
-            elapsedMs: getRunningElapsed(timings, context.toolCallId, context),
-          }, theme, width, truncateToWidth, visibleWidth),
-          (text) => paintBackground(theme, "toolPendingBg", text),
-          truncateToWidth,
-          visibleWidth,
-        );
-      },
-      renderResult(result, renderOptions, theme, context) {
-        if (renderOptions?.isPartial) return new EmptyComponent();
-        clearTimer(context?.state);
-        const elapsedMs = getCompletedElapsed(timings, context?.toolCallId, context);
-        if (context?.state && elapsedMs !== undefined) context.state[STATE_ELAPSED_MS] = elapsedMs;
-        if (context?.state) delete context.state[STATE_STARTED_AT];
-        if (context?.toolCallId) timings.delete(context.toolCallId);
-        const isError = context?.isError ?? result?.isError ?? false;
-        return new WidthAwareLines(
-          (width) => buildLines(source.name, context?.args ?? {}, result, {
-            isError,
-            expanded: renderOptions?.expanded === true,
-            elapsedMs,
-          }, theme, width, truncateToWidth, visibleWidth),
-          (text) => paintBackground(theme, isError ? "toolErrorBg" : "toolSuccessBg", text),
-          truncateToWidth,
-          visibleWidth,
-        );
-      },
+      ...createTidyRenderers(source.name),
     };
 
     Object.defineProperty(wrapped, DECORATED, { value: true, enumerable: false });
@@ -646,9 +665,31 @@ export function createUniversalTidy(options) {
     return true;
   }
 
+  function installInteractiveModePatch(InteractiveMode) {
+    const prototype = InteractiveMode?.prototype;
+    if (!prototype || prototype[INTERACTIVE_PATCHED]) {
+      interactivePatchInstalled = Boolean(prototype?.[INTERACTIVE_PATCHED]);
+      return interactivePatchInstalled;
+    }
+    const originalGetDefinition = prototype.getRegisteredToolDefinition;
+    if (typeof originalGetDefinition !== "function") {
+      patchFailure = "InteractiveMode.getRegisteredToolDefinition is unavailable";
+      return false;
+    }
+
+    prototype.getRegisteredToolDefinition = function flowTidyGetRegisteredToolDefinition(toolName) {
+      return originalGetDefinition.call(this, toolName) ?? getHistoricalRenderer(toolName);
+    };
+    Object.defineProperty(prototype, INTERACTIVE_PATCHED, { value: true, enumerable: false });
+    interactivePatchInstalled = true;
+    return true;
+  }
+
   function getStatus() {
     return {
-      patchInstalled,
+      patchInstalled: patchInstalled && interactivePatchInstalled,
+      agentSessionPatchInstalled: patchInstalled,
+      interactiveModePatchInstalled: interactivePatchInstalled,
       patchFailure,
       decoratedNames: [...decoratedNames].sort(),
       decoratedCount: decoratedNames.size,
@@ -658,6 +699,7 @@ export function createUniversalTidy(options) {
   return {
     decorateToolDefinition,
     installAgentSessionPatch,
+    installInteractiveModePatch,
     getStatus,
   };
 }

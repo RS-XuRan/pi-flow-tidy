@@ -9,6 +9,8 @@
 - Keep elapsed timing in memory only and leave historical entries blank when no measurement exists.
 - Keep second-line result tails such as `→ done` adjacent to short targets, and pin them to the right edge only when long targets overflow.
 - Keep tool names and second-line connectors tied to category-specific Pi semantic colors.
+- Add compact fallback renderers for historical third-party calls restored before extension tools finish registering.
+- Ask injected reasoning fields to use concise Chinese descriptions.
 
 ## 0.3.2 - 2026-09-06
 

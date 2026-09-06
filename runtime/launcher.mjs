@@ -30,15 +30,17 @@ async function start() {
   const mainPath = join(piRoot, "dist", "main.js");
   const setupPath = join(piRoot, "dist", "cli", "setup.js");
   const sessionPath = join(piRoot, "dist", "core", "agent-session.js");
+  const interactivePath = join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   const tuiPath = await firstReadable([
     join(piRoot, "node_modules", "@earendil-works", "pi-tui", "dist", "index.js"),
     resolve(piRoot, "..", "pi-tui", "dist", "index.js"),
   ]);
 
-  const [{ main }, { setupCli }, { AgentSession }, tui] = await Promise.all([
+  const [{ main }, { setupCli }, { AgentSession }, { InteractiveMode }, tui] = await Promise.all([
     import(moduleUrl(mainPath)),
     import(moduleUrl(setupPath)),
     import(moduleUrl(sessionPath)),
+    import(moduleUrl(interactivePath)),
     import(moduleUrl(tuiPath)),
   ]);
 
@@ -49,7 +51,9 @@ async function start() {
   globalThis[RUNTIME_SYMBOL] = flowTidy;
 
   const enabled = process.env.PI_FLOW_TIDY !== "0";
-  const installed = enabled ? flowTidy.installAgentSessionPatch(AgentSession) : false;
+  const agentSessionInstalled = enabled ? flowTidy.installAgentSessionPatch(AgentSession) : false;
+  const interactiveModeInstalled = enabled ? flowTidy.installInteractiveModePatch(InteractiveMode) : false;
+  const installed = agentSessionInstalled && interactiveModeInstalled;
   process.env.PI_FLOW_TIDY_ACTIVE = enabled && installed ? "1" : "0";
   if (enabled && !installed) {
     const status = flowTidy.getStatus();
