@@ -56,6 +56,47 @@ test("assigns distinct icons and colors with a generic fallback", () => {
   assert.match(editLines[1], /<warning>└<\/warning>/);
 });
 
+test("delegates full-row backgrounds to the Pi self render shell", () => {
+  const backgroundCalls = [];
+  const shellTheme = {
+    fg(_color, text) { return text; },
+    bg(color, text) {
+      backgroundCalls.push({ color, text });
+      return text;
+    },
+    bold(text) { return text; },
+  };
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  const tool = runtime.decorateToolDefinition({
+    name: "edit",
+    label: "edit",
+    description: "Test tool",
+    parameters: { type: "object", properties: { path: { type: "string" } } },
+    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },
+  });
+  const args = { reasoning: "update lock file", path: "package-lock.json" };
+  const state = {};
+  const runningLines = tool.renderCall(args, shellTheme, {
+    args,
+    toolCallId: "background-gap",
+    invalidate() {},
+    state,
+    isPartial: true,
+  }).render(120);
+  const errorLines = tool.renderResult(
+    { content: [{ type: "text", text: "Found 2 occurrences of the text. The text must be unique." }], isError: true },
+    { expanded: false, isPartial: false },
+    shellTheme,
+    { args, toolCallId: "background-gap", state, isPartial: false, isError: true },
+  ).render(120);
+
+  assert.equal(tool.renderShell, "self");
+  assert.equal(runningLines.length, 2);
+  assert.equal(errorLines.length, 2);
+  assert.ok([...runningLines, ...errorLines].every((line) => !line.endsWith(" ")));
+  assert.deepEqual(backgroundCalls, []);
+});
+
 test("decorates raw tool names and strips injected reasoning", async () => {
   const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
   let preparedArgs;

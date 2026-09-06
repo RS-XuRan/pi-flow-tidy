@@ -58,10 +58,6 @@ function fg(theme, color, text) {
   return safeThemeCall(theme, "fg", color, text);
 }
 
-function bg(theme, color, text) {
-  return safeThemeCall(theme, "bg", color, text);
-}
-
 function bold(theme, text) {
   return safeThemeCall(theme, "bold", text);
 }
@@ -283,10 +279,10 @@ function fitToolLine(line, width, truncateToWidth, visibleWidth) {
   return `${truncateToWidth(head, Math.max(1, max - tailWidth - 1), "…")} ${tail}`;
 }
 
+// The self render shell delegates full-row background painting to Pi's outer Box.
 class WidthAwareLines {
-  constructor(source, background, truncateToWidth, visibleWidth) {
+  constructor(source, truncateToWidth, visibleWidth) {
     this.source = source;
-    this.background = background;
     this.truncateToWidth = truncateToWidth;
     this.visibleWidth = visibleWidth;
   }
@@ -296,12 +292,7 @@ class WidthAwareLines {
   render(width) {
     const max = Math.max(1, width);
     const lines = typeof this.source === "function" ? this.source() : this.source;
-    return lines.map((line) => {
-      const fitted = fitToolLine(line, max, this.truncateToWidth, this.visibleWidth);
-      if (!this.background) return fitted;
-      const padded = fitted + " ".repeat(Math.max(0, max - this.visibleWidth(fitted)));
-      return this.background(padded);
-    });
+    return lines.map((line) => fitToolLine(line, max, this.truncateToWidth, this.visibleWidth));
   }
 }
 
@@ -459,13 +450,11 @@ export function createUniversalTidy(options) {
       renderCall(args, theme, context) {
         if (!context?.isPartial) return new EmptyComponent();
         ensureTimer(context);
-        const timing = getTiming(timings, context.toolCallId, context);
         return new WidthAwareLines(
           () => buildLines(source.name, args ?? {}, {}, {
             isRunning: true,
             elapsedMs: getTiming(timings, context.toolCallId, context).elapsedMs,
           }, theme),
-          (text) => bg(theme, "toolPendingBg", text),
           truncateToWidth,
           visibleWidth,
         );
@@ -483,7 +472,6 @@ export function createUniversalTidy(options) {
         }, theme);
         return new WidthAwareLines(
           lines,
-          (text) => bg(theme, isError ? "toolErrorBg" : "toolSuccessBg", text),
           truncateToWidth,
           visibleWidth,
         );

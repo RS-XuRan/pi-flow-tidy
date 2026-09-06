@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 - 2026-09-06
+
+- Fix incomplete tool background coverage at the right edge of rendered rows.
+- Delegate full-row background painting to Pi's self render shell to avoid nested ANSI background resets.
+- Add regression coverage for pending and error tool rendering.
+
 ## 0.3.0 - 2026-09-06
 
 - Add stable tool categories with distinct Unicode icons and theme-aware colors.

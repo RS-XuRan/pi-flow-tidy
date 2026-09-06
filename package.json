@@ -1,6 +1,6 @@
 {
   "name": "pi-flow-tidy",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Universal compact two-line tool rendering for Pi, including dynamically registered third-party tools.",
   "type": "module",
   "license": "MIT",
