@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 - 2026-09-06
+
+- Add stable tool categories with distinct Unicode icons and theme-aware colors.
+- Color the raw tool name and the second-line connector without changing the two-line layout.
+- Preserve separate running, success, and error state markers.
+- Add a generic visual fallback for unknown and future third-party tools.
+
 ## 0.2.0 - 2026-09-05
 
 - Remove installation, migration, and documentation coupling to specific third-party tool packages.

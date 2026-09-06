@@ -8,6 +8,24 @@ const SECRET_KEY = /(token|secret|password|passwd|api[_-]?key|authorization|cred
 const OMIT_KEY = /^(reasoning|content|data|body|payload|patch|oldText|newText|edits|tool_uses)$/i;
 const MAX_INLINE_VALUE = 140;
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
+const DEFAULT_TOOL_VISUAL = Object.freeze({ category: "generic", icon: "◆", color: "toolTitle" });
+const TOOL_VISUAL_RULES = Object.freeze([
+  { category: "orchestration", tokens: ["parallel", "batch", "multi", "orchestrate", "fanout"], icon: "⋈", color: "syntaxKeyword" },
+  { category: "task", tokens: ["todo", "task", "plan", "checklist"], icon: "☑", color: "customMessageLabel" },
+  { category: "edit", tokens: ["edit", "patch", "replace", "update", "modify", "mutate", "apply"], icon: "✎", color: "warning" },
+  { category: "search", tokens: ["grep", "search", "query", "match", "rg"], icon: "⌕", color: "accent" },
+  { category: "discover", tokens: ["find", "glob", "locate", "list", "ls", "tree", "walk"], icon: "⌖", color: "syntaxVariable" },
+  { category: "read", tokens: ["read", "open", "fetch", "get", "inspect", "view"], icon: "▤", color: "mdLink" },
+  { category: "write", tokens: ["write", "create", "save", "append"], icon: "+", color: "success" },
+  { category: "execute", tokens: ["bash", "shell", "exec", "execute", "run", "command", "terminal"], icon: "›", color: "bashMode" },
+  { category: "remove", tokens: ["delete", "remove", "unlink", "purge"], icon: "×", color: "error" },
+  { category: "interact", tokens: ["ask", "prompt", "confirm", "input", "question", "select"], icon: "?", color: "mdHeading" },
+  { category: "notify", tokens: ["notify", "notification", "alert", "message", "send"], icon: "!", color: "syntaxString" },
+  { category: "web", tokens: ["web", "http", "browser", "click", "crawl", "scrape"], icon: "◎", color: "borderAccent" },
+  { category: "visual", tokens: ["image", "imagegen", "screenshot", "photo", "diagram"], icon: "▣", color: "syntaxType" },
+  { category: "version", tokens: ["git", "commit", "branch", "merge", "rebase", "diff", "vcs"], icon: "±", color: "thinkingHigh" },
+  { category: "data", tokens: ["time", "weather", "sports", "finance", "stock", "market"], icon: "◷", color: "syntaxNumber" },
+]);
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -314,6 +332,19 @@ function getTiming(timings, toolCallId, context) {
   return { startedAt, endedAt, elapsedMs: Math.max(0, endedAt - startedAt) };
 }
 
+export function getToolVisual(name) {
+  const tokens = String(name ?? "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  for (const token of tokens) {
+    const matched = TOOL_VISUAL_RULES.find((rule) => rule.tokens.includes(token));
+    if (matched) return Object.freeze({ category: matched.category, icon: matched.icon, color: matched.color });
+  }
+  return DEFAULT_TOOL_VISUAL;
+}
+
 function buildLines(name, args, result, options, theme) {
   const isRunning = options.isRunning === true;
   const isError = options.isError === true;
@@ -323,7 +354,10 @@ function buildLines(name, args, result, options, theme) {
     : isError
       ? fg(theme, "error", "✗")
       : fg(theme, "success", "✓");
-  const toolName = fg(theme, "toolTitle", bold(theme, name));
+  const visual = getToolVisual(name);
+  const toolIcon = fg(theme, visual.color, visual.icon);
+  const toolName = fg(theme, visual.color, bold(theme, name));
+  const connector = fg(theme, visual.color, "└");
   const headline = reasoningHeadline(name, args);
   const target = targetDetail(name, args);
   const summaryText = isRunning ? "running" : genericResultSummary(name, args, result, isError);
@@ -331,8 +365,8 @@ function buildLines(name, args, result, options, theme) {
   const elapsedText = fg(theme, "dim", `· ${elapsed}`);
   const detail = target ? `${fg(theme, "dim", target)} ${fg(theme, "dim", "→")} ` : `${fg(theme, "dim", "→")} `;
   const lines = [
-    `${mark} ${toolName}${headline ? ` ${fg(theme, "text", headline)}` : ""}`,
-    `  ${detail}${summary} ${elapsedText}`,
+    `${mark} ${toolIcon} ${toolName}${headline ? ` ${fg(theme, "text", headline)}` : ""}`,
+    `  ${connector} ${detail}${summary} ${elapsedText}`,
   ];
   if (options.expanded && !isRunning) lines.push(...expandedLines(args, result, theme));
   return lines;

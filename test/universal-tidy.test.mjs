@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createUniversalTidy } from "../runtime/universal-tidy.mjs";
+import { createUniversalTidy, getToolVisual } from "../runtime/universal-tidy.mjs";
 
 function visibleWidth(value) {
   return String(value).replace(/\x1b\[[0-9;]*m/g, "").length;
@@ -17,6 +17,44 @@ const theme = {
   bg(_color, text) { return text; },
   bold(text) { return text; },
 };
+
+const annotatedTheme = {
+  fg(color, text) { return `<${color}>${text}</${color}>`; },
+  bg(_color, text) { return text; },
+  bold(text) { return `<b>${text}</b>`; },
+};
+
+function renderCompletedTool(name) {
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  const tool = runtime.decorateToolDefinition({
+    name,
+    label: name,
+    description: "Test tool",
+    parameters: { type: "object", properties: {} },
+    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },
+  });
+  return tool.renderResult(
+    { content: [{ type: "text", text: "ok" }], details: {} },
+    { expanded: false, isPartial: false },
+    annotatedTheme,
+    { args: { reasoning: "test visual" }, toolCallId: `visual-${name}`, state: {}, isError: false },
+  ).render(120);
+}
+
+test("assigns distinct icons and colors with a generic fallback", () => {
+  assert.deepEqual(getToolVisual("edit"), { category: "edit", icon: "✎", color: "warning" });
+  assert.deepEqual(getToolVisual("third_party_grep"), { category: "search", icon: "⌕", color: "accent" });
+  assert.deepEqual(getToolVisual("todo_update"), { category: "task", icon: "☑", color: "customMessageLabel" });
+  assert.deepEqual(getToolVisual("vendor_widget"), { category: "generic", icon: "◆", color: "toolTitle" });
+
+  const editLines = renderCompletedTool("edit");
+  const grepLines = renderCompletedTool("grep");
+  const todoLines = renderCompletedTool("todo");
+  assert.match(editLines[0], /<warning>✎<\/warning> <warning><b>edit<\/b><\/warning>/);
+  assert.match(grepLines[0], /<accent>⌕<\/accent> <accent><b>grep<\/b><\/accent>/);
+  assert.match(todoLines[0], /<customMessageLabel>☑<\/customMessageLabel> <customMessageLabel><b>todo<\/b><\/customMessageLabel>/);
+  assert.match(editLines[1], /<warning>└<\/warning>/);
+});
 
 test("decorates raw tool names and strips injected reasoning", async () => {
   const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });

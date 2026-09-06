@@ -1,16 +1,18 @@
 # pi-flow-tidy
 
-面向 Pi 的通用紧凑工具输出扩展：保留工具原始名称，以固定两行显示推理摘要、目标、结果摘要和耗时，并自动兼容会话启动后动态注册的第三方工具。
+面向 Pi 的通用紧凑工具输出扩展：保留工具原始名称，以固定两行显示推理摘要、目标、结果摘要和耗时，并自动兼容会话启动后动态注册的第三方工具。不同工具类别使用稳定的图标和主题感知颜色，便于快速扫视区分。
 
 ```text
-✓ custom_search locate matching source files
-  createUniversalTidy in runtime/universal-tidy.mjs → 2 matches in 1 file · 27ms
+✓ ⌕ custom_search locate matching source files
+  └ createUniversalTidy in runtime/universal-tidy.mjs → 2 matches in 1 file · 27ms
 ```
 
 ## 功能
 
 - 折叠状态固定显示两行。
 - 保留工具原始名称，不创建别名。
+- 根据工具名称自动分类，为命令图标、名称和第二行连接符应用不同主题色。
+- 执行状态与工具类别分离：成功、运行中、失败标记仍保持统一语义。
 - 内建工具和第三方工具使用统一输出风格。
 - 会话启动后动态注册的新工具也会自动接入。
 - 为普通对象参数增加可选 `reasoning` 字段，并在调用原工具前移除该字段。
@@ -19,6 +21,24 @@
 - 第二行统一显示目标、结果摘要和耗时。
 - 展开状态继续显示完整输出或 diff。
 - 不依赖任何特定搜索、文件管理或工具增强扩展。
+
+## 视觉分类
+
+分类基于原始工具名中的词元，不改名、不绑定具体第三方扩展。常见类别包括：
+
+| 类别 | 代表名称 | 图标 | 默认主题色用途 |
+|---|---|---:|---|
+| 编辑 | `edit`、`patch`、`replace` | `✎` | warning |
+| 搜索 | `grep`、`search`、`query` | `⌕` | accent |
+| 任务 | `todo`、`task`、`plan` | `☑` | custom message label |
+| 读取 | `read`、`open`、`inspect` | `▤` | markdown link |
+| 写入 | `write`、`create`、`save` | `+` | success |
+| 查找 | `find`、`glob`、`list` | `⌖` | syntax variable |
+| 执行 | `bash`、`shell`、`exec` | `›` | bash mode |
+| 删除 | `delete`、`remove`、`purge` | `×` | error |
+| 其他 | 未识别的新工具 | `◆` | tool title |
+
+颜色取自当前 Pi 主题，因此会自动适应暗色、亮色和自定义主题。未知工具使用通用后备样式，不影响执行和两行布局。
 
 ## 架构说明
 
