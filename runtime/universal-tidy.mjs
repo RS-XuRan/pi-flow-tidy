@@ -5,7 +5,7 @@ const STATE_STARTED_AT = "universalTidyStartedAt";
 const STATE_TIMER = "universalTidyTimer";
 const STATE_ELAPSED_MS = "universalTidyElapsedMs";
 const REASONING_DESCRIPTION =
-  "Short phrase (12 words or fewer) stating the goal or intent. Use Chinese. Do not restate the target, path, command, or query.";
+  "Short phrase (12 words or fewer) stating the goal or intent. Use Chinese.";
 const SECRET_KEY = /(token|secret|password|passwd|api[_-]?key|authorization|credential|cookie)/i;
 const OMIT_KEY = /^(reasoning|content|data|body|payload|patch|oldText|newText|edits|tool_uses)$/i;
 const MAX_INLINE_VALUE = 140;

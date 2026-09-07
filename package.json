@@ -44,6 +44,6 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check bin/pi-flow-tidy.mjs && node --check extensions/index.js && node --check lib/install.mjs && node --check lib/paths.mjs && node --check runtime/launcher.mjs && node --check runtime/universal-tidy.mjs"
+    "check": "node --check bin/pi-flow-tidy.mjs && node --check extensions/index.js && node --check lib/install.mjs && node --check lib/paths.mjs && node --check runtime/launcher.mjs && node --check runtime/module-resolution.mjs && node --check runtime/universal-tidy.mjs"
   }
 }

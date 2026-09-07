@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-import { access } from "node:fs/promises";
-import { constants } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { locatePiRoot } from "../lib/paths.mjs";
+import { resolvePiTuiPath } from "./module-resolution.mjs";
 import { createUniversalTidy } from "./universal-tidy.mjs";
 
 const RUNTIME_SYMBOL = Symbol.for("pi.flowTidy.runtime");
@@ -13,28 +12,13 @@ function moduleUrl(path) {
   return pathToFileURL(path).href;
 }
 
-async function firstReadable(paths) {
-  for (const path of paths) {
-    try {
-      await access(path, constants.R_OK);
-      return path;
-    } catch {
-      continue;
-    }
-  }
-  throw new Error(`Required module not found. Tried: ${paths.join(", ")}`);
-}
-
 async function start() {
   const piRoot = await locatePiRoot();
   const mainPath = join(piRoot, "dist", "main.js");
   const setupPath = join(piRoot, "dist", "cli", "setup.js");
   const sessionPath = join(piRoot, "dist", "core", "agent-session.js");
   const interactivePath = join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
-  const tuiPath = await firstReadable([
-    join(piRoot, "node_modules", "@earendil-works", "pi-tui", "dist", "index.js"),
-    resolve(piRoot, "..", "pi-tui", "dist", "index.js"),
-  ]);
+  const tuiPath = await resolvePiTuiPath(piRoot);
 
   const [{ main }, { setupCli }, { AgentSession }, { InteractiveMode }, tui] = await Promise.all([
     import(moduleUrl(mainPath)),

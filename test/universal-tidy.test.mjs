@@ -354,6 +354,7 @@ test("decorates raw tool names and strips injected reasoning", async () => {
   assert.equal(tool.renderShell, "self");
   assert.equal(tool.parameters.properties.reasoning.type, "string");
   assert.match(tool.parameters.properties.reasoning.description, /Use Chinese\./);
+  assert.doesNotMatch(tool.parameters.properties.reasoning.description, /Do not restate/);
   assert.match(tool.promptGuidelines.at(-1), /concise Chinese goal/);
   assert.deepEqual(tool.parameters.required, ["pattern"]);
 

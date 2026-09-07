@@ -51,17 +51,18 @@ test("installs, backs up, reports, and removes managed wrappers", async (t) => {
   assert.match(await readFile(join(fixture.binDir, "pi.cmd"), "utf8"), /pi-flow-tidy managed wrapper/);
   assert.match(await readFile(join(fixture.binDir, "pi"), "utf8"), /runtime[\\/]launcher\.mjs/);
 
-  const status = await getInstallStatus({ agentDir: fixture.agentDir, binDir: fixture.binDir });
+  const status = await getInstallStatus({ agentDir: fixture.agentDir });
   assert.equal(status.configured, true);
+  assert.equal(status.binDir, fixture.binDir);
   assert.equal(status.wrappers["pi.cmd"].managed, true);
 
   await writeFile(join(fixture.binDir, "pi.ps1"), "Write-Output custom\n", "utf8");
   const removed = await uninstallFlowTidy({
     agentDir: fixture.agentDir,
-    binDir: fixture.binDir,
     piRoot: fixture.piRoot,
     removePackage: false,
   });
+  assert.equal(removed.binDir, fixture.binDir);
   assert.ok(removed.removed.some((path) => path.endsWith("pi.cmd")));
   assert.ok(removed.preserved.some((path) => path.endsWith("pi.ps1")));
   assert.equal(existsSync(join(fixture.binDir, "pi.cmd")), false);
