@@ -6,6 +6,8 @@
 - Replace duplicated status marks with a bold, high-visibility left accent bar.
 - Move elapsed time to a right-aligned first-line column and keep timing plus result summaries in warning yellow.
 - Add one-column horizontal padding and preserve distinct subtle pending, success, and error backgrounds.
+- Keep elapsed timing hidden while tools are running and show one stable final duration after completion.
+- Preserve the original tool-call start time instead of restarting timing when execution begins.
 - Keep elapsed timing in memory only and leave historical entries blank when no measurement exists.
 - Keep second-line result tails such as `→ done` adjacent to short targets, and pin them to the right edge only when long targets overflow.
 - Keep tool names and second-line connectors tied to category-specific Pi semantic colors.

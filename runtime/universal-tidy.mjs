@@ -1,8 +1,6 @@
 const DECORATED = Symbol.for("pi.flowTidy.decorated");
 const PATCHED = Symbol.for("pi.flowTidy.agentSessionPatched");
 const INTERACTIVE_PATCHED = Symbol.for("pi.flowTidy.interactiveModePatched");
-const STATE_STARTED_AT = "universalTidyStartedAt";
-const STATE_TIMER = "universalTidyTimer";
 const STATE_ELAPSED_MS = "universalTidyElapsedMs";
 const REASONING_DESCRIPTION =
   "Short phrase (12 words or fewer) stating the goal or intent. Use Chinese.";
@@ -404,38 +402,23 @@ class EmptyComponent {
   render() { return []; }
 }
 
-function clearTimer(state) {
-  const timer = state?.[STATE_TIMER];
-  if (timer) clearInterval(timer);
-  if (state) state[STATE_TIMER] = undefined;
+function startTiming(timings, toolCallId, now) {
+  const tracked = toolCallId ? timings.get(toolCallId) : undefined;
+  if (tracked) return tracked;
+  const timing = { startedAt: now(), endedAt: undefined };
+  if (toolCallId) timings.set(toolCallId, timing);
+  return timing;
 }
 
-function ensureTimer(context) {
-  if (!context?.state || context.state[STATE_TIMER]) return;
-  const timer = setInterval(() => context.invalidate(), 1000);
-  timer.unref?.();
-  context.state[STATE_TIMER] = timer;
-}
-
-function getRunningElapsed(timings, toolCallId, context) {
-  const tracked = timings.get(toolCallId);
-  if (tracked) return Math.max(0, (tracked.endedAt ?? Date.now()) - tracked.startedAt);
-
-  const stateStarted = context?.state?.[STATE_STARTED_AT];
-  const startedAt = typeof stateStarted === "number" ? stateStarted : Date.now();
-  if (context?.state && typeof stateStarted !== "number") context.state[STATE_STARTED_AT] = startedAt;
-  return Math.max(0, Date.now() - startedAt);
-}
-
-function getCompletedElapsed(timings, toolCallId, context) {
+function getCompletedElapsed(timings, toolCallId, context, now) {
   const stateElapsed = context?.state?.[STATE_ELAPSED_MS];
   if (typeof stateElapsed === "number" && Number.isFinite(stateElapsed) && stateElapsed >= 0) {
     return stateElapsed;
   }
 
-  const tracked = timings.get(toolCallId);
+  const tracked = toolCallId ? timings.get(toolCallId) : undefined;
   if (!tracked) return undefined;
-  return Math.max(0, (tracked.endedAt ?? Date.now()) - tracked.startedAt);
+  return Math.max(0, (tracked.endedAt ?? now()) - tracked.startedAt);
 }
 
 export function getToolVisual(name) {
@@ -511,6 +494,7 @@ function reattachReasoning(raw, prepared) {
 
 export function createUniversalTidy(options) {
   const { truncateToWidth, visibleWidth } = options;
+  const now = typeof options.now === "function" ? options.now : Date.now;
   if (typeof truncateToWidth !== "function" || typeof visibleWidth !== "function") {
     throw new TypeError("pi-flow-tidy requires truncateToWidth and visibleWidth functions");
   }
@@ -534,11 +518,10 @@ export function createUniversalTidy(options) {
       renderShell: "self",
       renderCall(args, theme, context) {
         if (!context?.isPartial) return new EmptyComponent();
-        ensureTimer(context);
+        startTiming(timings, context.toolCallId, now);
         return new WidthAwareLines(
           (width) => buildLines(toolName, args ?? {}, {}, {
             isRunning: true,
-            elapsedMs: getRunningElapsed(timings, context.toolCallId, context),
           }, theme, width, truncateToWidth, visibleWidth),
           (text) => paintBackground(theme, "toolPendingBg", text),
           truncateToWidth,
@@ -547,10 +530,10 @@ export function createUniversalTidy(options) {
       },
       renderResult(result, renderOptions, theme, context) {
         if (renderOptions?.isPartial) return new EmptyComponent();
-        clearTimer(context?.state);
-        const elapsedMs = getCompletedElapsed(timings, context?.toolCallId, context);
+        const elapsedMs = context?.executionStarted === true
+          ? getCompletedElapsed(timings, context?.toolCallId, context, now)
+          : undefined;
         if (context?.state && elapsedMs !== undefined) context.state[STATE_ELAPSED_MS] = elapsedMs;
-        if (context?.state) delete context.state[STATE_STARTED_AT];
         if (context?.toolCallId) timings.delete(context.toolCallId);
         const isError = context?.isError ?? result?.isError ?? false;
         return new WidthAwareLines(
@@ -601,14 +584,13 @@ export function createUniversalTidy(options) {
           }
         : sourcePrepare,
       async execute(toolCallId, params, signal, onUpdate, context) {
-        const timing = { startedAt: Date.now(), endedAt: undefined };
-        timings.set(toolCallId, timing);
+        const timing = startTiming(timings, toolCallId, now);
         try {
           const delegated = inject ? stripReasoning(params) : params;
           return await sourceExecute.call(source, toolCallId, delegated, signal, onUpdate, context);
         } finally {
-          timing.endedAt = Date.now();
-          scheduleTimingCleanup(toolCallId, timing);
+          timing.endedAt = now();
+          if (toolCallId) scheduleTimingCleanup(toolCallId, timing);
         }
       },
       ...createTidyRenderers(source.name),

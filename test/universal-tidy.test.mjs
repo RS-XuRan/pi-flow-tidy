@@ -108,6 +108,7 @@ test("uses distinct state backgrounds, bright bars, and yellow timing", async ()
     toolCallId: "layout-running",
     invalidate() {},
     state,
+    executionStarted: true,
     isPartial: true,
   }).render(64);
   const successResult = await tool.execute("layout-running", args, undefined, undefined, {});
@@ -115,7 +116,7 @@ test("uses distinct state backgrounds, bright bars, and yellow timing", async ()
     successResult,
     { expanded: false, isPartial: false },
     semanticTheme,
-    { args, toolCallId: "layout-running", state, isError: false },
+    { args, toolCallId: "layout-running", state, executionStarted: true, isError: false },
   ).render(64);
   await tool.execute("layout-error", args, undefined, undefined, {});
   const errorLines = tool.renderResult(
@@ -126,7 +127,7 @@ test("uses distinct state backgrounds, bright bars, and yellow timing", async ()
     },
     { expanded: false, isPartial: false },
     semanticTheme,
-    { args, toolCallId: "layout-error", state: {}, isError: true },
+    { args, toolCallId: "layout-error", state: {}, executionStarted: true, isError: true },
   ).render(64);
 
   for (const line of [...runningLines, ...successLines, ...errorLines]) {
@@ -138,6 +139,7 @@ test("uses distinct state backgrounds, bright bars, and yellow timing", async ()
   }
 
   assert.ok(runningLines.every((line) => line.includes("<warning><b>▌</b></warning>")));
+  assert.doesNotMatch(runningLines[0], /<warning>\d+(?:ms|s)<\/warning>/);
   assert.ok(successLines.every((line) => line.includes("<success><b>▌</b></success>")));
   assert.ok(errorLines.every((line) => line.includes("<error><b>▌</b></error>")));
   assert.match(successLines[0], /💻 <bashMode><b>bash<\/b><\/bashMode>/);
@@ -162,37 +164,66 @@ test("uses distinct state backgrounds, bright bars, and yellow timing", async ()
   ]);
 });
 
-test("uses live elapsed time without writing result metadata", async () => {
-  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+test("shows stable elapsed time only after completion", async () => {
+  let clock = 1_000;
+  let invalidations = 0;
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth, now: () => clock });
   const tool = runtime.decorateToolDefinition({
     name: "bash",
     label: "bash",
     description: "Test tool",
     parameters: { type: "object", properties: {} },
     async execute() {
-      await new Promise((resolve) => setTimeout(resolve, 12));
+      clock += 25;
       return { content: [{ type: "text", text: "ok" }], details: {} };
     },
   });
-
-  const result = await tool.execute("live-timing", {}, undefined, undefined, {});
-  assert.deepEqual(result.details, {});
   const state = {};
-  const liveLines = tool.renderResult(
+  const context = {
+    args: {},
+    toolCallId: "stable-timing",
+    state,
+    isError: false,
+    executionStarted: true,
+    isPartial: true,
+    invalidate() { invalidations += 1; },
+  };
+
+  const runningLines = tool.renderCall({}, annotatedTheme, context).render(72);
+  assert.doesNotMatch(runningLines[0], /<warning>\d+(?:ms|s)<\/warning>/);
+  assert.equal(invalidations, 0);
+
+  clock += 12_000;
+  const result = await tool.execute("stable-timing", {}, undefined, undefined, {});
+  assert.deepEqual(result.details, {});
+  const completedLines = tool.renderResult(
     result,
     { expanded: false, isPartial: false },
     annotatedTheme,
-    { args: {}, toolCallId: "live-timing", state, isError: false },
+    { ...context, isPartial: false },
   ).render(72);
-  assert.match(liveLines[0], /<warning>\d+ms<\/warning>/);
+  assert.match(completedLines[0], /<warning>12s<\/warning>/);
+  assert.equal(state.universalTidyElapsedMs, 12_025);
+
+  clock += 5_000;
   const rerenderedLines = tool.renderResult(
     result,
     { expanded: true, isPartial: false },
     annotatedTheme,
-    { args: {}, toolCallId: "live-timing", state, isError: false },
+    { ...context, isPartial: false },
   ).render(72);
-  assert.match(rerenderedLines[0], /<warning>\d+ms<\/warning>/);
+  assert.match(rerenderedLines[0], /<warning>12s<\/warning>/);
 
+  const historicalState = {};
+  tool.renderCall({}, annotatedTheme, {
+    args: {},
+    toolCallId: "historical-replay",
+    state: historicalState,
+    executionStarted: false,
+    isPartial: true,
+    invalidate() {},
+  }).render(72);
+  clock += 276;
   const replayLines = tool.renderResult(
     { content: [{ type: "text", text: "ok" }], details: {} },
     { expanded: false, isPartial: false },
@@ -200,7 +231,8 @@ test("uses live elapsed time without writing result metadata", async () => {
     {
       args: {},
       toolCallId: "historical-replay",
-      state: { universalTidyStartedAt: Date.now() - 276 },
+      state: historicalState,
+      executionStarted: false,
       isError: false,
     },
   ).render(72);
