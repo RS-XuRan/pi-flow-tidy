@@ -348,6 +348,34 @@ test("keeps full-row backgrounds active after truncation resets ANSI styles", ()
   }
 });
 
+test("normalizes expanded output before measuring and painting rows", () => {
+  const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
+  const tool = runtime.decorateToolDefinition({
+    name: "bash",
+    parameters: { type: "object", properties: {} },
+    async execute() {},
+  });
+  const render = (result, args = {}) => tool.renderResult(
+    result, { expanded: true }, theme, { args, state: {} },
+  ).render(100).slice(2);
+  const lf = "test_one (tests.Suite.test_one) ... ok\n\nRan 1 test\n\nOK";
+  const result = { content: [{ type: "text", text: lf.replaceAll("\n", "\r\n") }] };
+  const before = structuredClone(result);
+  assert.deepEqual(render(result), render({ output: lf }));
+  assert.deepEqual(result, before);
+  assert.deepEqual(render({ output: "first\rsecond" }), render({ output: "first\nsecond" }));
+  assert.deepEqual(render({ output: "\x1b[31mOK\x1b[0m\x1b[2K\x1b[1G\x07\x08\tend" }),
+    render({ output: "OK    end" }));
+  assert.deepEqual(render({ details: { diff: "+one\r\n-two" } }),
+    render({ details: { diff: "+one\n-two" } }));
+  assert.deepEqual(render({}, { content: "one\r\ntwo" }), render({}, { content: "one\ntwo" }));
+  for (const line of render(result)) {
+    assert.ok(line.startsWith(" ▌   "));
+    assert.equal(visibleWidth(line), 100);
+    assert.doesNotMatch(line, /[\r\n\t]/);
+  }
+});
+
 test("decorates raw tool names and strips injected reasoning", async () => {
   const runtime = createUniversalTidy({ truncateToWidth, visibleWidth });
   let preparedArgs;

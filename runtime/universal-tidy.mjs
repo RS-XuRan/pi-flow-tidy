@@ -1,3 +1,5 @@
+import { stripVTControlCharacters } from "node:util";
+
 const DECORATED = Symbol.for("pi.flowTidy.decorated");
 const PATCHED = Symbol.for("pi.flowTidy.agentSessionPatched");
 const INTERACTIVE_PATCHED = Symbol.for("pi.flowTidy.interactiveModePatched");
@@ -301,10 +303,19 @@ export function formatElapsed(milliseconds) {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
+function normalizeDisplayText(value) {
+  // Tool output is a transcript, not a terminal stream. Normalize before
+  // measuring rows so carriage returns cannot overwrite framing or padding.
+  return stripVTControlCharacters(String(value))
+    .replace(/\r\n?/g, "\n")
+    .replace(/\t/g, "    ")
+    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
+}
+
 function expandedLines(args, result, theme, statusBar) {
   const lines = [];
   const details = result?.details;
-  const diff = isRecord(details) && typeof details.diff === "string" ? details.diff.replace(/\s+$/, "") : "";
+  const diff = isRecord(details) && typeof details.diff === "string" ? normalizeDisplayText(details.diff).replace(/\s+$/, "") : "";
   if (diff) {
     for (const line of diff.split("\n")) {
       const color = line.startsWith("+") && !line.startsWith("+++")
@@ -317,14 +328,14 @@ function expandedLines(args, result, theme, statusBar) {
     return lines;
   }
 
-  const text = textFromResult(result).replace(/\s+$/, "");
+  const text = normalizeDisplayText(textFromResult(result)).replace(/\s+$/, "");
   if (text) {
     for (const line of text.split("\n")) lines.push(`${statusBar}   ${fg(theme, "toolOutput", line)}`);
     return lines;
   }
 
   if (isRecord(args) && typeof args.content === "string") {
-    for (const line of args.content.split("\n")) lines.push(`${statusBar}   ${fg(theme, "toolOutput", line)}`);
+    for (const line of normalizeDisplayText(args.content).split("\n")) lines.push(`${statusBar}   ${fg(theme, "toolOutput", line)}`);
   }
   return lines;
 }
